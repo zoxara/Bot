@@ -1,4 +1,4 @@
-name: Auto-Fix & Build Android APK
+name: Build Android APK
 
 on:
   push:
@@ -23,65 +23,19 @@ jobs:
         with:
           node-version: 18
 
-      - name: Auto-Detect, Extract & Setup Project
+      - name: Build Web & Sync Android
         run: |
-          echo "Searching for zip file..."
-          UNZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
-          if [ -n "$UNZIP_FILE" ]; then
-            echo "Found zip file: $UNZIP_FILE. Extracting..."
-            mkdir -p extracted_project
-            unzip -q "$UNZIP_FILE" -d extracted_project
-          else
-            echo "Error: No zip file found in root directory!"
-            exit 1
-          fi
+          npm install --legacy-peer-deps
+          npx cap sync android || true
 
-          cd extracted_project
-          
-          # If nested inside another folder, fix path
-          if [ -d "$(ls -d */ | head -n 1)android" ]; then
-            cd $(ls -d */ | head -n 1)
-          fi
-
-          echo "Installing dependencies..."
-          if [ -f "package.json" ]; then
-            npm install --legacy-peer-deps || npm install
-            
-            # Check if Capacitor or Cordova is used, add android platform if missing
-            if [ ! -d "android" ]; then
-              echo "Android folder missing. Generating Android platform..."
-              npx cap init --force || true
-              npx cap add android || true
-              npx ionic capacitor add android || true
-            fi
-          fi
-
-      - name: Auto-Fix Gradle & Build APK
+      - name: Build APK with Gradle
         run: |
-          cd extracted_project
-          # Find android folder dynamically anywhere inside extracted files
-          ANDROID_DIR=$(find . -type d -name "android" | head -n 1)
-          
-          if [ -n "$ANDROID_DIR" ]; then
-            cd "$ANDROID_DIR"
-            echo "Found Android directory at: $ANDROID_DIR"
-            
-            # Sync web assets to android if capacitor config exists
-            if [ -f "../../capacitor.config.json" ] || [ -f "../capacitor.config.ts" ]; then
-              npx cap sync android || true
-            fi
-
-            chmod +x gradlew || chmod +x ./gradlew || true
-            ./gradlew clean assembleDebug --stacktrace
-          else
-            echo "Error: Android folder could not be generated or located!"
-            exit 1
-          fi
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
-            **/android/app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
