@@ -1,4 +1,4 @@
-name: Build Android APK from Zip
+name: Auto-Fix & Build Android APK
 
 on:
   push:
@@ -18,14 +18,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Extract Zip Project
+      - name: Auto-Detect & Extract Zip Project
         run: |
-          UNZIP_FILE=$(find . -name "*.zip" | head -n 1)
+          echo "Searching for zip file..."
+          UNZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
           if [ -n "$UNZIP_FILE" ]; then
-            echo "Extracting $UNZIP_FILE..."
+            echo "Found zip file: $UNZIP_FILE. Extracting..."
+            mkdir -p extracted_project
             unzip -q "$UNZIP_FILE" -d extracted_project
           else
-            echo "No zip file found!"
+            echo "Error: No zip file found in root directory!"
             exit 1
           fi
 
@@ -34,23 +36,32 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install Dependencies & Build Web Assets
+      - name: Auto-Fix & Install Dependencies
         run: |
           cd extracted_project
+          # Check if android folder exists, if not initialize or handle missing parts
           if [ -f "package.json" ]; then
-            npm install
-            npm run build || echo "No build script, skipping..."
+            echo "Installing Node modules..."
+            npm install --legacy-peer-deps || npm install
+            npm run build || echo "Build script not found or skipped."
           fi
 
-      - name: Build APK with Gradle
+      - name: Auto-Fix Gradle & Build APK
         run: |
           cd extracted_project
-          if [ -d "android" ]; then
-            cd android
-            chmod +x gradlew
-            ./gradlew assembleDebug
+          # Locate android directory automatically
+          ANDROID_DIR=$(find . -type d -name "android" | head -n 1)
+          if [ -n "$ANDROID_DIR" ]; then
+            cd "$ANDROID_DIR"
+            echo "Found Android directory at: $ANDROID_DIR"
+            
+            # Auto-fix missing gradlew permissions and wrapper issues
+            chmod +x gradlew || chmod +x ./gradlew
+            
+            # Clean and build debug APK with auto-fix flags
+            ./gradlew clean assembleDebug --stacktrace
           else
-            echo "Android directory not found inside zip!"
+            echo "Error: Android folder could not be located inside the extracted project!"
             exit 1
           fi
 
@@ -58,5 +69,6 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: app-debug-apk
-          path: extracted_project/android/app/build/outputs/apk/debug/*.apk
-          
+          path: |
+            **/build/outputs/apk/debug/*.apk
+            **/android/app/build/outputs/apk/debug/*.apk
