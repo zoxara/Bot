@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Ultimate Auto-Build Android APK
 
 on:
   push:
@@ -23,19 +23,69 @@ jobs:
         with:
           node-version: 18
 
-      - name: Build Web & Sync Android
+      - name: Extract & Auto-Repair Project Structure
         run: |
-          npm install --legacy-peer-deps
+          echo "Checking for zip files..."
+          UNZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          
+          if [ -n "$UNZIP_FILE" ]; then
+            echo "Extracting $UNZIP_FILE..."
+            mkdir -p app_source
+            unzip -q "$UNZIP_FILE" -d app_source
+            cd app_source
+            # If zipped folder contains a nested folder, move contents up
+            if [ -d "$(ls -d */ | head -n 1)" ]; then
+              cd "$(ls -d */ | head -n 1)"
+            fi
+          else
+            echo "No zip found, using root repository files..."
+            mkdir -p app_source
+            shopt -s extglob
+            cp -r !(app_source|.git|.github) app_source/ 2>/dev/null || true
+            cd app_source
+          fi
+
+          # Ensure package.json exists, if not create a basic Capacitor one
+          if [ ! -f "package.json" ]; then
+            echo "Creating default package.json..."
+            npm init -y
+            npm install @capacitor/core @capacitor/cli @capacitor/android --save
+          fi
+
+          echo "Installing dependencies..."
+          npm install --legacy-peer-deps || npm install
+
+          # Build web assets if build script exists
+          npm run build || echo "Skipping npm build..."
+
+          # Ensure Android platform exists
+          if [ ! -d "android" ]; then
+            echo "Generating missing Android platform..."
+            npx cap init MQL5EAStudio com.mql5.eastudio --web-dir www --yes || true
+            npx cap add android || true
+          else
+            echo "Android directory found."
+          fi
+
           npx cap sync android || true
+          cd android
+          chmod +x gradlew || chmod +x ./gradlew || true
+          
+          # Move back to root workspace for gradle step
+          cd ../..
+          mkdir -p final_workspace
+          cp -r app_source/* final_workspace/ 2>/dev/null || true
 
       - name: Build APK with Gradle
         run: |
-          cd android
+          cd final_workspace/android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew clean assembleDebug --stacktrace
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: mql5-ea-studio-apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
+            **/android/app/build/outputs/apk/debug/*.apk
