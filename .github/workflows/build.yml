@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK from Zip
 
 on:
   push:
@@ -20,14 +20,13 @@ jobs:
 
       - name: Extract Zip Project
         run: |
-          # Nimage iroru zip file hesarannu ivide badalayisikolli (eg: mql5-ea-studio.zip)
           UNZIP_FILE=$(find . -name "*.zip" | head -n 1)
           if [ -n "$UNZIP_FILE" ]; then
             echo "Extracting $UNZIP_FILE..."
             unzip -q "$UNZIP_FILE" -d extracted_project
-            cd extracted_project
           else
-            echo "No zip file found, looking for normal files..."
+            echo "No zip file found!"
+            exit 1
           fi
 
       - name: Setup Node.js
@@ -35,32 +34,29 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install Dependencies & Build
+      - name: Install Dependencies & Build Web Assets
         run: |
-          if [ -d "extracted_project" ]; then
-            cd extracted_project
+          cd extracted_project
+          if [ -f "package.json" ]; then
+            npm install
+            npm run build || echo "No build script, skipping..."
           fi
-          npm install
-          npm run build || npx cap sync
 
       - name: Build APK with Gradle
         run: |
-          if [ -d "extracted_project/android" ]; then
-            cd extracted_project/android
-          elif [ -d "android" ]; then
+          cd extracted_project
+          if [ -d "android" ]; then
             cd android
+            chmod +x gradlew
+            ./gradlew assembleDebug
           else
-            echo "Android folder not found!"
+            echo "Android directory not found inside zip!"
             exit 1
           fi
-          chmod +x gradlew
-          ./gradlew assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v3
         with:
           name: app-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
-            extracted_project/android/app/build/outputs/apk/debug/*.apk
-            
+          path: extracted_project/android/app/build/outputs/apk/debug/*.apk
+          
