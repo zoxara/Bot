@@ -23,29 +23,29 @@ jobs:
         with:
           node-version: 18
 
-      - name: Extract & Auto-Repair Project Structure
+      - name: Extract & Setup Project
         run: |
           echo "Checking for zip files..."
           UNZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
           
+          mkdir -p app_source
           if [ -n "$UNZIP_FILE" ]; then
             echo "Extracting $UNZIP_FILE..."
-            mkdir -p app_source
             unzip -q "$UNZIP_FILE" -d app_source
-            cd app_source
-            # If zipped folder contains a nested folder, move contents up
-            if [ -d "$(ls -d */ | head -n 1)" ]; then
-              cd "$(ls -d */ | head -n 1)"
-            fi
           else
-            echo "No zip found, using root repository files..."
-            mkdir -p app_source
-            shopt -s extglob
-            cp -r !(app_source|.git|.github) app_source/ 2>/dev/null || true
-            cd app_source
+            echo "No zip found, copying files..."
+            cp -r * app_source/ 2>/dev/null || true
           fi
 
-          # Ensure package.json exists, if not create a basic Capacitor one
+          cd app_source
+          
+          # If nested inside a folder, move into it
+          FIRST_DIR=$(ls -d */ 2>/dev/null | head -n 1)
+          if [ -n "$FIRST_DIR" ] && [ "$FIRST_DIR" != "app_source/" ]; then
+            cd "$FIRST_DIR" || true
+          fi
+
+          # Ensure package.json exists
           if [ ! -f "package.json" ]; then
             echo "Creating default package.json..."
             npm init -y
@@ -55,7 +55,6 @@ jobs:
           echo "Installing dependencies..."
           npm install --legacy-peer-deps || npm install
 
-          # Build web assets if build script exists
           npm run build || echo "Skipping npm build..."
 
           # Ensure Android platform exists
@@ -63,24 +62,32 @@ jobs:
             echo "Generating missing Android platform..."
             npx cap init MQL5EAStudio com.mql5.eastudio --web-dir www --yes || true
             npx cap add android || true
-          else
-            echo "Android directory found."
           fi
 
           npx cap sync android || true
-          cd android
-          chmod +x gradlew || chmod +x ./gradlew || true
           
-          # Move back to root workspace for gradle step
-          cd ../..
+          # Copy everything to workspace root for gradle
+          cd ..
           mkdir -p final_workspace
           cp -r app_source/* final_workspace/ 2>/dev/null || true
+          # Handle if it was nested
+          if [ -d "app_source/$FIRST_DIR" ]; then
+            cp -r app_source/$FIRST_DIR* final_workspace/ 2>/dev/null || true
+          fi
 
       - name: Build APK with Gradle
         run: |
-          cd final_workspace/android
-          chmod +x gradlew
-          ./gradlew clean assembleDebug --stacktrace
+          # Find where android folder is located
+          ANDROID_PATH=$(find . -type d -name "android" | head -n 1)
+          if [ -n "$ANDROID_PATH" ]; then
+            cd "$ANDROID_PATH"
+            echo "Found android at $ANDROID_PATH"
+            chmod +x gradlew || true
+            ./gradlew clean assembleDebug --stacktrace
+          else
+            echo "Error: Android directory not found!"
+            exit 1
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -89,3 +96,4 @@ jobs:
           path: |
             **/build/outputs/apk/debug/*.apk
             **/android/app/build/outputs/apk/debug/*.apk
+            
