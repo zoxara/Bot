@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 18
 
-      - name: Extract & Setup Project
+      - name: Extract, Setup & Build APK
         run: |
           echo "Checking for zip files..."
           UNZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
@@ -39,10 +39,10 @@ jobs:
 
           cd app_source
           
-          # Handle nested directory if zip extracted into a folder
+          # Move inside nested directory if zip extracted into a folder (ignoring node_modules)
           FIRST_DIR=$(ls -d */ 2>/dev/null | grep -v 'node_modules/' | head -n 1)
           if [ -n "$FIRST_DIR" ] && [ "$FIRST_DIR" != "app_source/" ]; then
-            cd "$FIRST_DIR" || true
+            cd "$FIRST_DIR"
           fi
 
           # Ensure package.json exists
@@ -66,22 +66,14 @@ jobs:
 
           npx cap sync android || true
 
-      - name: Build APK with Gradle
-        run: |
-          cd app_source
-          # Move inside nested folder if it exists
-          FIRST_DIR=$(ls -d */ 2>/dev/null | grep -v 'node_modules/' | head -n 1)
-          if [ -n "$FIRST_DIR" ] && [ -d "$FIRST_DIR/android" ]; then
-            cd "$FIRST_DIR"
-          fi
-
+          # Now build the APK directly here where android folder is guaranteed to exist
           if [ -d "android" ]; then
             cd android
-            echo "Found android directory. Building APK..."
+            echo "Building APK with Gradle..."
             chmod +x gradlew || true
             ./gradlew clean assembleDebug --stacktrace
           else
-            echo "Error: Android folder still not found in project root!"
+            echo "Error: Android folder could not be created!"
             exit 1
           fi
 
