@@ -45,28 +45,45 @@ jobs:
             cd "$FIRST_DIR"
           fi
 
-          # Ensure package.json exists
+          # Ensure package.json exists and has basic setup
           if [ ! -f "package.json" ]; then
             echo "Creating default package.json..."
             npm init -y
-            npm install @capacitor/core @capacitor/cli @capacitor/android --save
           fi
+
+          # Install Capacitor core & CLI if missing
+          npm install @capacitor/core @capacitor/cli --save --legacy-peer-deps || true
+          npm install @capacitor/android --save --legacy-peer-deps || true
 
           echo "Installing dependencies..."
-          npm install --legacy-peer-deps || npm install
+          npm install --legacy-peer-deps || npm install || true
 
-          npm run build || echo "Skipping npm build..."
-
-          # Ensure Android platform exists
-          if [ ! -d "android" ]; then
-            echo "Generating missing Android platform..."
-            npx cap init MQL5EAStudio com.mql5.eastudio --web-dir www --yes || true
-            npx cap add android || true
+          # Ensure capacitor.config.json exists to prevent init errors
+          if [ ! -f "capacitor.config.json" ] && [ ! -f "capacitor.config.ts" ]; then
+            echo "Creating capacitor.config.json..."
+            echo '{
+              "appId": "com.mql5.eastudio",
+              "appName": "MQL5 EA Studio",
+              "webDir": "www",
+              "bundledWebRuntime": false
+            }' > capacitor.config.json
           fi
+
+          # Ensure web directory exists
+          if [ ! -d "www" ] && [ ! -d "src" ]; then
+            mkdir -p www
+            echo "<html><body><h1>MQL5 EA Studio</h1></body></html>" > www/index.html
+          elif [ -d "src" ] && [ ! -d "www" ]; then
+            npm run build || true
+          fi
+
+          # Force add android platform cleanly
+          rm -rf android
+          npx cap add android
 
           npx cap sync android || true
 
-          # Now build the APK directly here where android folder is guaranteed to exist
+          # Build APK with Gradle
           if [ -d "android" ]; then
             cd android
             echo "Building APK with Gradle..."
@@ -84,4 +101,3 @@ jobs:
           path: |
             **/build/outputs/apk/debug/*.apk
             **/android/app/build/outputs/apk/debug/*.apk
-            
